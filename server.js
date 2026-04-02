@@ -6,42 +6,80 @@ import mongoose from 'mongoose';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// ✅ Ensure uploads folder exists
-if (!fs.existsSync('uploads')) {
-    fs.mkdirSync('uploads');
+const app = express();
+
+// ✅ CORS fix - apna Hostinger domain daalo
+app.use(cors({
+    origin: [
+        'https://www.wellindia.in',
+        'https://wellindia.in',
+        'http://localhost:5173',
+        'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ✅ Uploads folder - Render pe safe way
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ✅ MongoDB
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("MongoDB Connected"))
-    .catch(err => console.log(err));
+// ✅ MongoDB connect with retry
+const connectDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URI);
+        console.log('MongoDB Connected');
+    } catch (err) {
+        console.error('MongoDB Error:', err.message);
+        setTimeout(connectDB, 5000);
+    }
+};
+connectDB();
 
-// ✅ Schema
+// ✅ Candidate Schema
 const candidateSchema = new mongoose.Schema({
     name: String,
     email: String,
     phone: String,
     position: String,
-    resumePath: String
+    resumePath: String,
+    createdAt: { type: Date, default: Date.now }
 });
 const Candidate = mongoose.model('Candidate', candidateSchema);
 
 // ✅ Multer setup
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
+    destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) =>
-        cb(null, Date.now() + '-' + file.originalname)
+        cb(null, Date.now() + '-' + file.originalname.replace(/\s/g, '_'))
 });
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.pdf', '.doc', '.docx'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PDF, DOC, DOCX files allowed'));
+        }
+    }
+});
 
-// ✅ Single transporter
+// ✅ Nodemailer transporter
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -50,26 +88,43 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// ================== APPLY JOB ==================
-// HR_EMAIL pe jaayega + candidate ko auto-reply
+// ✅ Transporter verify on startup
+transporter.verify((error) => {
+    if (error) {
+        console.error('Email transporter error:', error.message);
+    } else {
+        console.log('Email server ready');
+    }
+});
+
+// ✅ Logo URL (file path ki jagah URL use karo - Render pe file nahi hoti)
+const LOGO_URL = 'https://www.wellindia.in/logo.png';
+const WEBSITE_URL = 'https://www.wellindia.in';
+
+// ============================================================
+// ✅ ROUTE 1: Job Application
+// ============================================================
 app.post('/api/apply', upload.single('resume'), async (req, res) => {
     try {
         const { name, email, phone, position } = req.body;
 
+        console.log('Apply request:', { name, email, phone, position });
+
         if (!name || !email || !phone || !position) {
-            return res.status(400).json({ message: "All fields are required" });
+            return res.status(400).json({ success: false, message: 'All fields are required' });
         }
 
         const resumePath = req.file ? req.file.path : '';
 
-        // ✅ Save to DB
+        // Save to MongoDB
         const newCandidate = new Candidate({ name, email, phone, position, resumePath });
         await newCandidate.save();
+        console.log('Candidate saved to DB');
 
-        // ✅ Mail to HR
+        // HR Email
         const hrMail = {
-            from: `"${name}" <${process.env.EMAIL_USER}>`,
-            to: process.env.HR_EMAIL,         // ← HR Gmail
+            from: `"Well India Careers" <${process.env.EMAIL_USER}>`,
+            to: process.env.HR_EMAIL,
             replyTo: email,
             subject: `📋 New Job Application: ${position}`,
             html: `
@@ -103,20 +158,20 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                     <p>This email was generated from your website careers page.</p>
                 </div>
             </div>`,
-            attachments: resumePath
+            attachments: resumePath && fs.existsSync(resumePath)
                 ? [{ filename: path.basename(resumePath), path: resumePath }]
                 : []
         };
 
-        // ✅ Auto-reply to Candidate
+        // Candidate Auto-reply
         const candidateAutoReply = {
             from: `"Well India" <${process.env.EMAIL_USER}>`,
-            to: email,                          // ← Candidate ka email
+            to: email,
             subject: `✅ Application Received – ${position}`,
             html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
                 <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
-                    <img src="cid:logo" style="width:120px;" />
+                    <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
                 </div>
                 <div style="padding: 25px;">
                     <h2 style="color:#0d9e8a;">Hello ${name},</h2>
@@ -124,7 +179,7 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                     <p>We have received your application for the position of <b>${position}</b>.</p>
                     <p>Our HR team will review your profile and get back to you shortly.</p>
                     <div style="margin-top:20px;">
-                        <a href="https://www.wellindia.in/"
+                        <a href="${WEBSITE_URL}"
                            style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
                            Visit Website
                         </a>
@@ -139,40 +194,41 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                     </div>
                     <p>Well India - NGO Consulting Services</p>
                 </div>
-            </div>`,
-            attachments: [
-                { filename: 'logo.png', path: './assets/logo.png', cid: 'logo' }
-            ]
+            </div>`
+            // ✅ No file attachments - logo URL use ho raha hai
         };
 
-        // ✅ Send both emails
         await Promise.all([
             transporter.sendMail(hrMail),
             transporter.sendMail(candidateAutoReply)
         ]);
 
-        res.status(200).json({ message: 'Application submitted successfully!' });
+        console.log('Both emails sent for application');
+        res.status(200).json({ success: true, message: 'Application submitted successfully!' });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: error.message });
+        console.error('Apply route error:', error);
+        res.status(500).json({ success: false, message: 'Something went wrong', error: error.message });
     }
 });
 
-// ================== SEND EMAIL (Service Inquiry) ==================
-// SERVICE_EMAIL pe jaayega + user ko auto-reply
+// ============================================================
+// ✅ ROUTE 2: Service Inquiry / Contact Form
+// ============================================================
 app.post('/send-email', async (req, res) => {
     try {
         const { name, mobile, email, services, location } = req.body;
 
+        console.log('Send-email request:', { name, mobile, email, services, location });
+
         if (!name || !mobile || !email || !services) {
-            return res.status(400).json({ message: "All fields required" });
+            return res.status(400).json({ success: false, message: 'All fields required' });
         }
 
-        // ✅ Mail to Service Team
+        // Service/HR Email
         const serviceMail = {
-            from: `"${name}" <${process.env.EMAIL_USER}>`,
-            to: process.env.SERVICE_EMAIL,     // ← Service Email (alag)
+            from: `"Well India Website" <${process.env.EMAIL_USER}>`,
+            to: process.env.SERVICE_EMAIL,
             replyTo: email,
             subject: `🚀 New Inquiry: ${services}`,
             html: `
@@ -213,15 +269,15 @@ app.post('/send-email', async (req, res) => {
             </div>`
         };
 
-        // ✅ Auto-reply to Customer
+        // Customer Auto-reply
         const customerAutoReply = {
             from: `"Well India" <${process.env.EMAIL_USER}>`,
-            to: email,                          // ← Customer ka email
+            to: email,
             subject: `We've Received Your Inquiry`,
             html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
                 <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
-                    <img src="cid:logo" style="width:120px;" />
+                    <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
                 </div>
                 <div style="padding: 25px;">
                     <h2 style="color:#0d9e8a;">Hello ${name},</h2>
@@ -229,7 +285,7 @@ app.post('/send-email', async (req, res) => {
                     <p>We received your request for <b>${services}</b>. Our team will contact you soon.</p>
                     <p><b>Your Contact:</b> ${mobile}</p>
                     <div style="margin-top:20px;">
-                        <a href="https://www.wellindia.in/"
+                        <a href="${WEBSITE_URL}"
                            style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
                            Visit Website
                         </a>
@@ -244,25 +300,43 @@ app.post('/send-email', async (req, res) => {
                     </div>
                     <p>Well India - NGO Consulting Services</p>
                 </div>
-            </div>`,
-            attachments: [
-                { filename: 'logo.png', path: './assets/logo.png', cid: 'logo' }
-            ]
+            </div>`
+            // ✅ No file attachments - logo URL use ho raha hai
         };
 
-        // ✅ Send both emails
         await Promise.all([
             transporter.sendMail(serviceMail),
             transporter.sendMail(customerAutoReply)
         ]);
 
-        res.status(200).json({ success: true });
+        console.log('Both emails sent for inquiry');
+        res.status(200).json({ success: true, message: 'Inquiry submitted successfully!' });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Email failed" });
+        console.error('Send-email route error:', error);
+        res.status(500).json({ success: false, message: 'Email failed', error: error.message });
     }
 });
 
-// ================== SERVER ==================
-app.listen(5000, () => console.log('Server running on port 5000'));
+// ✅ Health check route - Render ko alive rakhne ke liye
+app.get('/', (req, res) => {
+    res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
+});
+
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
+
+// ✅ 404 handler
+app.use((req, res) => {
+    res.status(404).json({ success: false, message: 'Route not found' });
+});
+
+// ✅ Global error handler
+app.use((err, req, res, next) => {
+    console.error('Global error:', err);
+    res.status(500).json({ success: false, message: err.message });
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
