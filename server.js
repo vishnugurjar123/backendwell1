@@ -79,15 +79,19 @@ const upload = multer({
     }
 });
 
-// ✅ Nodemailer transporter
+// ✅ Nodemailer transporter (Render Friendly Config)
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // Port 465 ke liye true use karein
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
     },
+    tls: {
+        rejectUnauthorized: false // Certificate issues ko bypass karne ke liye
+    }
 });
-
 // ✅ Transporter verify on startup
 transporter.verify((error) => {
     if (error) {
