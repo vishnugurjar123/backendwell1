@@ -308,11 +308,15 @@ app.post('/send-email', async (req, res) => {
             </div>`
             // ✅ No file attachments - logo URL use ho raha hai
         };
-
-        await Promise.all([
-            transporter.sendMail(serviceMail),
-            transporter.sendMail(customerAutoReply)
-        ]);
+try {
+    await transporter.sendMail(serviceMail);
+    console.log("Service mail sent");
+    await transporter.sendMail(customerAutoReply);
+    console.log("Customer mail sent");
+} catch (emailErr) {
+    console.error("Email Sending Error Details:", emailErr);
+    // Isse aapko Render logs mein exact reason dikhega
+}
 
         console.log('Both emails sent for inquiry');
         res.status(200).json({ success: true, message: 'Inquiry submitted successfully!' });
