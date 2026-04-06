@@ -18,10 +18,11 @@ const app = express();
 // ✅ CORS fix - apna Hostinger domain daalo
 app.use(cors({
     origin: [
-        'https://www.wellindia.in',
+      
         'https://wellindia.in',
         'http://localhost:5173',
-        'http://localhost:5000'
+        'https://backendwell1-1.onrender.com',
+        'https://backendwell1.onrender.com',
     ],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true
