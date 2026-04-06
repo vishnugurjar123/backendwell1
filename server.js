@@ -21,7 +21,7 @@ app.use(cors({
         'https://www.wellindia.in',
         'https://wellindia.in',
         'http://localhost:5173',
-        'http://localhost:3000'
+        'http://localhost:5000'
     ],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true
@@ -101,9 +101,8 @@ transporter.verify((error) => {
     }
 });
 
-// ✅ Logo URL (file path ki jagah URL use karo - Render pe file nahi hoti)
-const LOGO_URL = 'https://www.wellindia.in/logo.png';
-const WEBSITE_URL = 'https://www.wellindia.in';
+const LOGO_URL = 'https://res.cloudinary.com/dtarufspt/image/upload/f_auto,q_auto/logo_oulnzw';
+const WEBSITE_URL = 'https://wellindia.in';
 
 // ============================================================
 // ✅ ROUTE 1: Job Application
