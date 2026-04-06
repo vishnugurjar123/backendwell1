@@ -15,10 +15,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// ✅ CORS fix - apna Hostinger domain daalo
+// ✅ CORS fix
 app.use(cors({
     origin: [
-      'https://www.wellindia.in',
+        'https://www.wellindia.in',
         'https://wellindia.in',
         'http://localhost:5173',
         'https://backendwell1-1.onrender.com',
@@ -32,7 +32,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Uploads folder - Render pe safe way
+// ✅ Uploads folder
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -42,9 +42,9 @@ if (!fs.existsSync(uploadDir)) {
 const connectDB = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
-        console.log('MongoDB Connected');
+        console.log('✅ MongoDB Connected');
     } catch (err) {
-        console.error('MongoDB Error:', err.message);
+        console.error('❌ MongoDB Error:', err.message);
         setTimeout(connectDB, 5000);
     }
 };
@@ -69,7 +69,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
     storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowed = ['.pdf', '.doc', '.docx'];
         const ext = path.extname(file.originalname).toLowerCase();
@@ -81,39 +81,69 @@ const upload = multer({
     }
 });
 
-// ✅ Nodemailer transporter (Render Friendly Config)
+// ✅ IMPROVED: Nodemailer transporter with TIMEOUT & RETRY
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, // Port 465 ke liye true use karein
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
     },
+    connectionTimeout: 10000,      // 10 seconds
+    socketTimeout: 10000,           // 10 seconds
     tls: {
-        rejectUnauthorized: false // Certificate issues ko bypass karne ke liye
+        rejectUnauthorized: false
+    },
+    pool: {
+        maxConnections: 5,          // Limit concurrent connections
+        maxMessages: 100,
+        rateDelta: 2000,            // Wait 2 seconds between emails
+        rateLimit: 5                // Max 5 emails per rateDelta
     }
 });
-// ✅ Transporter verify on startup
+
 transporter.verify((error) => {
     if (error) {
-        console.error('Email transporter error:', error.message);
+        console.error('❌ Email transporter error:', error.message);
     } else {
-        console.log('Email server ready');
+        console.log('✅ Email server ready');
     }
 });
+
+// ✅ IMPROVED: Retry logic for email sending
+async function sendEmailWithRetry(mailOptions, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const result = await transporter.sendMail(mailOptions);
+            console.log(`✅ Email sent (attempt ${i + 1}):`, result.messageId);
+            return { success: true, messageId: result.messageId };
+        } catch (error) {
+            console.error(`❌ Attempt ${i + 1} failed:`, error.message);
+            
+            if (i < retries - 1) {
+                // Wait before retrying (exponential backoff)
+                const delay = Math.pow(2, i) * 1000;
+                console.log(`⏳ Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                return { success: false, error: error.message };
+            }
+        }
+    }
+}
 
 const LOGO_URL = 'https://res.cloudinary.com/dtarufspt/image/upload/f_auto,q_auto/logo_oulnzw';
 const WEBSITE_URL = 'https://wellindia.in';
 
 // ============================================================
-// ✅ ROUTE 1: Job Application
+// ✅ ROUTE 1: Job Application (ASYNC EMAIL SENDING)
 // ============================================================
 app.post('/api/apply', upload.single('resume'), async (req, res) => {
     try {
         const { name, email, phone, position } = req.body;
 
-        console.log('Apply request:', { name, email, phone, position });
+        console.log('📝 Apply request:', { name, email, phone, position });
 
         if (!name || !email || !phone || !position) {
             return res.status(400).json({ success: false, message: 'All fields are required' });
@@ -124,210 +154,235 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
         // Save to MongoDB
         const newCandidate = new Candidate({ name, email, phone, position, resumePath });
         await newCandidate.save();
-        console.log('Candidate saved to DB');
+        console.log('✅ Candidate saved to DB');
 
-        // HR Email
-        const hrMail = {
-            from: `"Well India Careers" <${process.env.EMAIL_USER}>`,
-            to: process.env.HR_EMAIL,
-            replyTo: email,
-            subject: `📋 New Job Application: ${position}`,
-            html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
-                <div style="background: linear-gradient(135deg, #0d9e8a, #0b8a79); padding: 20px; text-align: center;">
-                    <h2 style="color: #ffffff; margin: 0;">New Job Application Received</h2>
-                </div>
-                <div style="padding: 20px; background-color: #f9f9f9;">
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Name:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${name}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Email:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${email}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Phone:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${phone}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px;"><b>Position Applied:</b></td>
-                            <td style="padding: 10px;">
-                                <span style="background:#0d9e8a;color:#fff;padding:4px 10px;border-radius:4px;">${position}</span>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-                <div style="background: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #777;">
-                    <p>This email was generated from your website careers page.</p>
-                </div>
-            </div>`,
-            attachments: resumePath && fs.existsSync(resumePath)
-                ? [{ filename: path.basename(resumePath), path: resumePath }]
-                : []
-        };
+        // ✅ RESPOND IMMEDIATELY - Don't wait for emails
+        res.status(200).json({ 
+            success: true, 
+            message: 'Application submitted successfully! You will receive a confirmation email shortly.',
+            candidateId: newCandidate._id
+        });
 
-        // Candidate Auto-reply
-        const candidateAutoReply = {
-            from: `"Well India" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: `✅ Application Received – ${position}`,
-            html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
-                <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
-                    <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
-                </div>
-                <div style="padding: 25px;">
-                    <h2 style="color:#0d9e8a;">Hello ${name},</h2>
-                    <p>Thank you for applying at <b>Well India</b>!</p>
-                    <p>We have received your application for the position of <b>${position}</b>.</p>
-                    <p>Our HR team will review your profile and get back to you shortly.</p>
-                    <div style="margin-top:20px;">
-                        <a href="${WEBSITE_URL}"
-                           style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
-                           Visit Website
-                        </a>
-                    </div>
-                </div>
-                <div style="background:#f9f9f9;padding:15px;text-align:center;font-size:12px;color:#999;">
-                    <p style="margin: 5px 0;">Well India</p>
-                    <p style="margin: 5px 0;">202, 2nd Floor, Hans Bhawan Building, Bahadurshah Zafar Marg, ITO, New Delhi – 110002</p>
-                    <div style="margin-top: 10px;">
-                        <a href="https://www.instagram.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Instagram</a>
-                        <a href="https://www.facebook.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Facebook</a>
-                    </div>
-                    <p>Well India - NGO Consulting Services</p>
-                </div>
-            </div>`
-            // ✅ No file attachments - logo URL use ho raha hai
-        };
+        // ✅ Send emails in background (ASYNC - no await)
+        (async () => {
+            try {
+                // HR Email
+                const hrMail = {
+                    from: `"Well India Careers" <${process.env.EMAIL_USER}>`,
+                    to: process.env.HR_EMAIL,
+                    replyTo: email,
+                    subject: `📋 New Job Application: ${position}`,
+                    html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+                        <div style="background: linear-gradient(135deg, #0d9e8a, #0b8a79); padding: 20px; text-align: center;">
+                            <h2 style="color: #ffffff; margin: 0;">New Job Application Received</h2>
+                        </div>
+                        <div style="padding: 20px; background-color: #f9f9f9;">
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Name:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">${name}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Email:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">${email}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Phone:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">${phone}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px;"><b>Position Applied:</b></td>
+                                    <td style="padding: 10px;">
+                                        <span style="background:#0d9e8a;color:#fff;padding:4px 10px;border-radius:4px;">${position}</span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div style="background: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #777;">
+                            <p>This email was generated from your website careers page.</p>
+                        </div>
+                    </div>`,
+                    attachments: resumePath && fs.existsSync(resumePath)
+                        ? [{ filename: path.basename(resumePath), path: resumePath }]
+                        : []
+                };
 
-        await Promise.all([
-            transporter.sendMail(hrMail),
-            transporter.sendMail(candidateAutoReply)
-        ]);
+                // Candidate Auto-reply
+                const candidateAutoReply = {
+                    from: `"Well India" <${process.env.EMAIL_USER}>`,
+                    to: email,
+                    subject: `✅ Application Received – ${position}`,
+                    html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+                        <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
+                            <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
+                        </div>
+                        <div style="padding: 25px;">
+                            <h2 style="color:#0d9e8a;">Hello ${name},</h2>
+                            <p>Thank you for applying at <b>Well India</b>!</p>
+                            <p>We have received your application for the position of <b>${position}</b>.</p>
+                            <p>Our HR team will review your profile and get back to you shortly.</p>
+                            <div style="margin-top:20px;">
+                                <a href="${WEBSITE_URL}"
+                                   style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
+                                   Visit Website
+                                </a>
+                            </div>
+                        </div>
+                        <div style="background:#f9f9f9;padding:15px;text-align:center;font-size:12px;color:#999;">
+                            <p style="margin: 5px 0;">Well India</p>
+                            <p style="margin: 5px 0;">202, 2nd Floor, Hans Bhawan Building, Bahadurshah Zafar Marg, ITO, New Delhi – 110002</p>
+                            <div style="margin-top: 10px;">
+                                <a href="https://www.instagram.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Instagram</a>
+                                <a href="https://www.facebook.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Facebook</a>
+                            </div>
+                            <p>Well India - NGO Consulting Services</p>
+                        </div>
+                    </div>`
+                };
 
-        console.log('Both emails sent for application');
-        res.status(200).json({ success: true, message: 'Application submitted successfully!' });
+                // Send both emails with retry
+                const [hrResult, candidateResult] = await Promise.allSettled([
+                    sendEmailWithRetry(hrMail),
+                    sendEmailWithRetry(candidateAutoReply)
+                ]);
+
+                console.log('📧 HR Email:', hrResult.status === 'fulfilled' ? '✅ Sent' : '❌ Failed');
+                console.log('📧 Candidate Email:', candidateResult.status === 'fulfilled' ? '✅ Sent' : '❌ Failed');
+
+            } catch (emailError) {
+                console.error('❌ Background email error:', emailError.message);
+            }
+        })();
 
     } catch (error) {
-        console.error('Apply route error:', error);
+        console.error('❌ Apply route error:', error);
         res.status(500).json({ success: false, message: 'Something went wrong', error: error.message });
     }
 });
 
 // ============================================================
-// ✅ ROUTE 2: Service Inquiry / Contact Form
+// ✅ ROUTE 2: Service Inquiry (ASYNC EMAIL SENDING)
 // ============================================================
 app.post('/send-email', async (req, res) => {
     try {
         const { name, mobile, email, services, location } = req.body;
 
-        console.log('Send-email request:', { name, mobile, email, services, location });
+        console.log('📝 Send-email request:', { name, mobile, email, services, location });
 
         if (!name || !mobile || !email || !services) {
             return res.status(400).json({ success: false, message: 'All fields required' });
         }
 
-        // Service/HR Email
-        const serviceMail = {
-            from: `"Well India Website" <${process.env.EMAIL_USER}>`,
-            to: process.env.SERVICE_EMAIL,
-            replyTo: email,
-            subject: `🚀 New Inquiry: ${services}`,
-            html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
-                <div style="background: linear-gradient(135deg, #0d9e8a, #0b8a79); padding: 20px; text-align: center;">
-                    <h2 style="color: #ffffff; margin: 0;">New Service Request</h2>
-                </div>
-                <div style="padding: 20px; background-color: #f9f9f9;">
-                    <p style="font-size: 16px; color: #333;">You have received a new inquiry from your website.</p>
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Name:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${name}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Mobile:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${mobile}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Email:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${email}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Service:</b></td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">
-                                <span style="background:#0d9e8a;color:#fff;padding:4px 10px;border-radius:4px;">${services}</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px;"><b>Location:</b></td>
-                            <td style="padding: 10px;">${location || 'N/A'}</td>
-                        </tr>
-                    </table>
-                </div>
-                <div style="background: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #777;">
-                    <p>This email was generated from your website.</p>
-                </div>
-            </div>`
-        };
+        // ✅ RESPOND IMMEDIATELY - Don't wait for emails
+        res.status(200).json({ 
+            success: true, 
+            message: 'Inquiry submitted successfully! You will receive a confirmation email shortly.'
+        });
 
-        // Customer Auto-reply
-        const customerAutoReply = {
-            from: `"Well India" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: `We've Received Your Inquiry`,
-            html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
-                <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
-                    <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
-                </div>
-                <div style="padding: 25px;">
-                    <h2 style="color:#0d9e8a;">Hello ${name},</h2>
-                    <p>Thank you for contacting <b>Well India</b>.</p>
-                    <p>We received your request for <b>${services}</b>. Our team will contact you soon.</p>
-                    <p><b>Your Contact:</b> ${mobile}</p>
-                    <div style="margin-top:20px;">
-                        <a href="${WEBSITE_URL}"
-                           style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
-                           Visit Website
-                        </a>
-                    </div>
-                </div>
-                <div style="background:#f9f9f9;padding:20px;text-align:center;font-size:12px;color:#999;">
-                    <p style="margin: 5px 0;">Well India</p>
-                    <p style="margin: 5px 0;">202, 2nd Floor, Hans Bhawan Building, Bahadurshah Zafar Marg, ITO, New Delhi – 110002</p>
-                    <div style="margin-top: 10px;">
-                        <a href="https://www.instagram.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Instagram</a>
-                        <a href="https://www.facebook.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Facebook</a>
-                    </div>
-                    <p>Well India - NGO Consulting Services</p>
-                </div>
-            </div>`
-            // ✅ No file attachments - logo URL use ho raha hai
-        };
-try {
-    await transporter.sendMail(serviceMail);
-    console.log("Service mail sent");
-    await transporter.sendMail(customerAutoReply);
-    console.log("Customer mail sent");
-} catch (emailErr) {
-    console.error("Email Sending Error Details:", emailErr);
-    // Isse aapko Render logs mein exact reason dikhega
-}
+        // ✅ Send emails in background (ASYNC - no await)
+        (async () => {
+            try {
+                // Service/HR Email
+                const serviceMail = {
+                    from: `"Well India Website" <${process.env.EMAIL_USER}>`,
+                    to: process.env.SERVICE_EMAIL,
+                    replyTo: email,
+                    subject: `🚀 New Inquiry: ${services}`,
+                    html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+                        <div style="background: linear-gradient(135deg, #0d9e8a, #0b8a79); padding: 20px; text-align: center;">
+                            <h2 style="color: #ffffff; margin: 0;">New Service Request</h2>
+                        </div>
+                        <div style="padding: 20px; background-color: #f9f9f9;">
+                            <p style="font-size: 16px; color: #333;">You have received a new inquiry from your website.</p>
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Name:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">${name}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Mobile:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">${mobile}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Email:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">${email}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;"><b>Service:</b></td>
+                                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+                                        <span style="background:#0d9e8a;color:#fff;padding:4px 10px;border-radius:4px;">${services}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px;"><b>Location:</b></td>
+                                    <td style="padding: 10px;">${location || 'N/A'}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div style="background: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #777;">
+                            <p>This email was generated from your website.</p>
+                        </div>
+                    </div>`
+                };
 
-        console.log('Both emails sent for inquiry');
-        res.status(200).json({ success: true, message: 'Inquiry submitted successfully!' });
+                // Customer Auto-reply
+                const customerAutoReply = {
+                    from: `"Well India" <${process.env.EMAIL_USER}>`,
+                    to: email,
+                    subject: `We've Received Your Inquiry`,
+                    html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+                        <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
+                            <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
+                        </div>
+                        <div style="padding: 25px;">
+                            <h2 style="color:#0d9e8a;">Hello ${name},</h2>
+                            <p>Thank you for contacting <b>Well India</b>.</p>
+                            <p>We received your request for <b>${services}</b>. Our team will contact you soon.</p>
+                            <p><b>Your Contact:</b> ${mobile}</p>
+                            <div style="margin-top:20px;">
+                                <a href="${WEBSITE_URL}"
+                                   style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
+                                   Visit Website
+                                </a>
+                            </div>
+                        </div>
+                        <div style="background:#f9f9f9;padding:20px;text-align:center;font-size:12px;color:#999;">
+                            <p style="margin: 5px 0;">Well India</p>
+                            <p style="margin: 5px 0;">202, 2nd Floor, Hans Bhawan Building, Bahadurshah Zafar Marg, ITO, New Delhi – 110002</p>
+                            <div style="margin-top: 10px;">
+                                <a href="https://www.instagram.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Instagram</a>
+                                <a href="https://www.facebook.com/wellindia.in/" style="color: #0d9e8a; text-decoration: none; margin: 0 10px;">Facebook</a>
+                            </div>
+                            <p>Well India - NGO Consulting Services</p>
+                        </div>
+                    </div>`
+                };
+
+                // Send both emails with retry
+                const [serviceResult, customerResult] = await Promise.allSettled([
+                    sendEmailWithRetry(serviceMail),
+                    sendEmailWithRetry(customerAutoReply)
+                ]);
+
+                console.log('📧 Service Email:', serviceResult.status === 'fulfilled' ? '✅ Sent' : '❌ Failed');
+                console.log('📧 Customer Email:', customerResult.status === 'fulfilled' ? '✅ Sent' : '❌ Failed');
+
+            } catch (emailError) {
+                console.error('❌ Background email error:', emailError.message);
+            }
+        })();
 
     } catch (error) {
-        console.error('Send-email route error:', error);
+        console.error('❌ Send-email route error:', error);
         res.status(500).json({ success: false, message: 'Email failed', error: error.message });
     }
 });
 
-// ✅ Health check route - Render ko alive rakhne ke liye
+// ✅ Health check route
 app.get('/', (req, res) => {
     res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
 });
@@ -343,9 +398,9 @@ app.use((req, res) => {
 
 // ✅ Global error handler
 app.use((err, req, res, next) => {
-    console.error('Global error:', err);
+    console.error('❌ Global error:', err);
     res.status(500).json({ success: false, message: err.message });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
