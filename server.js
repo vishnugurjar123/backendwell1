@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,7 +16,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// ✅ CORS Configuration
+
 app.use(cors({
     origin: [
         'https://www.wellindia.in',
@@ -23,6 +24,7 @@ app.use(cors({
         'http://localhost:5173',
         'https://backendwell1-1.onrender.com',
         'https://backendwell1.onrender.com',
+
     ],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
@@ -32,25 +34,25 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Uploads folder
+
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ✅ MongoDB Connection with Retry
+
 const connectDB = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
-        console.log('✅ MongoDB Connected');
+        console.log(' MongoDB Connected');
     } catch (err) {
-        console.error('❌ MongoDB Error:', err.message);
+        console.error(' MongoDB Error:', err.message);
         setTimeout(connectDB, 5000);
     }
 };
 connectDB();
 
-// ✅ Candidate Schema
+
 const candidateSchema = new mongoose.Schema({
     name: String,
     email: String,
@@ -61,7 +63,7 @@ const candidateSchema = new mongoose.Schema({
 });
 const Candidate = mongoose.model('Candidate', candidateSchema);
 
-// ✅ Multer Configuration
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) =>
@@ -81,22 +83,19 @@ const upload = multer({
     }
 });
 
-// ============================================================
-// ✅ RENDER-OPTIMIZED GMAIL TRANSPORTER
-// ============================================================
 console.log('\n' + '='.repeat(60));
-console.log('🚀 INITIALIZING RENDER-OPTIMIZED EMAIL CONFIG');
+console.log(' INITIALIZING RENDER-OPTIMIZED EMAIL CONFIG');
 console.log('='.repeat(60) + '\n');
 
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587,                      // Port 587 is better for Render
-    secure: false,                  // false for port 587
+    port: 587,
+    secure: false,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
     },
-    connectionTimeout: 15000,        // 15 seconds timeout
+    connectionTimeout: 15000,
     socketTimeout: 15000,
     greetingTimeout: 10000,
     tls: {
@@ -104,69 +103,66 @@ const transporter = nodemailer.createTransport({
         minVersion: 'TLSv1.2'
     },
     pool: {
-        maxConnections: 3,           // Conservative limit
+        maxConnections: 3,
         maxMessages: 50,
-        rateDelta: 5000,             // 5 second gap between emails
-        rateLimit: 2                 // 2 emails per 5 seconds
+        rateDelta: 5000,
+        rateLimit: 2
     },
     logger: true,
     debug: true,
     name: 'wellindia.in'
 });
 
-// ✅ Verify Transporter Connection
-console.log('🔧 Verifying Gmail connection...');
+
+console.log(' Verifying Gmail connection...');
 transporter.verify((error, success) => {
     if (error) {
-        console.error('❌ EMAIL TRANSPORTER ERROR:');
+        console.error(' EMAIL TRANSPORTER ERROR:');
         console.error('   Code:', error.code);
         console.error('   Message:', error.message);
-        console.error('\n⚠️  TROUBLESHOOTING:');
+        console.error('\n  TROUBLESHOOTING:');
         console.error('   1. Check EMAIL_USER in .env');
         console.error('   2. Check EMAIL_PASS in .env (must be 16-char app password)');
         console.error('   3. Verify Gmail 2FA is enabled');
         console.error('   4. Generate new app password from https://myaccount.google.com/apppasswords\n');
     } else {
-        console.log('✅ EMAIL TRANSPORTER READY');
+        console.log(' EMAIL TRANSPORTER READY');
         console.log('   Host: smtp.gmail.com');
         console.log('   Port: 587');
         console.log('   Status: Connected\n');
     }
 });
 
-// ============================================================
-// ✅ EMAIL SENDING FUNCTION WITH RENDER OPTIMIZATION
-// ============================================================
 
 async function sendEmailWithRetryRender(mailOptions, retries = 5) {
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
-            console.log(`\n📧 [Attempt ${attempt + 1}/${retries}] Sending email...`);
+            console.log(`\n [Attempt ${attempt + 1}/${retries}] Sending email...`);
             console.log(`   To: ${mailOptions.to}`);
             console.log(`   Subject: ${mailOptions.subject.substring(0, 50)}...`);
-            
+
             const info = await transporter.sendMail(mailOptions);
-            
-            console.log(`✅ [SUCCESS] Email delivered!`);
+
+            console.log(` [SUCCESS] Email delivered!`);
             console.log(`   Message ID: ${info.messageId}`);
             console.log(`   Response: ${info.response}\n`);
-            
+
             return { success: true, messageId: info.messageId };
-            
+
         } catch (error) {
-            console.error(`❌ [Attempt ${attempt + 1}] Failed!`);
+            console.error(` [Attempt ${attempt + 1}] Failed!`);
             console.error(`   Code: ${error.code}`);
             console.error(`   Error: ${error.message}`);
-            
+
             if (attempt < retries - 1) {
-                // Exponential backoff with longer delays for Render
+
                 const delays = [2000, 5000, 10000, 20000, 40000];
                 const delay = delays[attempt] || 40000;
-                
-                console.log(`⏳ Retrying in ${delay / 1000}s...\n`);
+
+                console.log(` Retrying in ${delay / 1000}s...\n`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                console.error(`\n❌ [FAILED] All ${retries} attempts failed\n`);
+                console.error(`\n [FAILED] All ${retries} attempts failed\n`);
                 return { success: false, error: error.message };
             }
         }
@@ -176,20 +172,18 @@ async function sendEmailWithRetryRender(mailOptions, retries = 5) {
 const LOGO_URL = 'https://res.cloudinary.com/dtarufspt/image/upload/f_auto,q_auto/logo_oulnzw';
 const WEBSITE_URL = 'https://wellindia.in';
 
-// ============================================================
-// ✅ ROUTE 1: Job Application (ASYNC BACKGROUND EMAIL)
-// ============================================================
 app.post('/api/apply', upload.single('resume'), async (req, res) => {
     try {
         const { name, email, phone, position } = req.body;
 
         console.log('\n' + '='.repeat(60));
-        console.log('📝 JOB APPLICATION RECEIVED');
+        console.log(' JOB APPLICATION RECEIVED');
         console.log('='.repeat(60));
         console.log(`Name: ${name}`);
         console.log(`Email: ${email}`);
         console.log(`Phone: ${phone}`);
         console.log(`Position: ${position}`);
+        console.log(`position:${position}`)
 
         if (!name || !email || !phone || !position) {
             return res.status(400).json({ success: false, message: 'All fields are required' });
@@ -200,18 +194,18 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
         // Save to MongoDB
         const newCandidate = new Candidate({ name, email, phone, position, resumePath });
         await newCandidate.save();
-        console.log(`✅ Saved to MongoDB with ID: ${newCandidate._id}\n`);
+        console.log(` Saved to MongoDB with ID: ${newCandidate._id}\n`);
 
-        // ✅ RESPOND IMMEDIATELY
-        res.status(200).json({ 
-            success: true, 
+       
+        res.status(200).json({
+            success: true,
             message: 'Application submitted successfully! Check your email for confirmation.',
             candidateId: newCandidate._id
         });
 
-        // ✅ SEND EMAILS IN BACKGROUND (NO WAITING)
+     
         (async () => {
-            console.log('📧 Starting background email sending...\n');
+            console.log(' Starting background email sending...\n');
 
             try {
                 // HR Email
@@ -294,32 +288,30 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                 ]);
 
                 console.log('\n' + '='.repeat(60));
-                console.log('📊 EMAIL SENDING RESULTS');
+                console.log(' EMAIL SENDING RESULTS');
                 console.log('='.repeat(60));
-                console.log(`HR Email: ${hrResult.status === 'fulfilled' ? '✅ SENT' : '❌ FAILED'}`);
-                console.log(`Candidate Email: ${candidateResult.status === 'fulfilled' ? '✅ SENT' : '❌ FAILED'}`);
+                console.log(`HR Email: ${hrResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
+                console.log(`Candidate Email: ${candidateResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
                 console.log('='.repeat(60) + '\n');
 
             } catch (emailError) {
-                console.error('❌ Background email error:', emailError.message);
+                console.error(' Background email error:', emailError.message);
             }
         })();
 
     } catch (error) {
-        console.error('❌ Apply route error:', error);
+        console.error(' Apply route error:', error);
         res.status(500).json({ success: false, message: 'Something went wrong', error: error.message });
     }
 });
 
-// ============================================================
-// ✅ ROUTE 2: Service Inquiry (ASYNC BACKGROUND EMAIL)
-// ============================================================
+
 app.post('/send-email', async (req, res) => {
     try {
         const { name, mobile, email, services, location } = req.body;
 
         console.log('\n' + '='.repeat(60));
-        console.log('📝 SERVICE INQUIRY RECEIVED');
+        console.log(' SERVICE INQUIRY RECEIVED');
         console.log('='.repeat(60));
         console.log(`Name: ${name}`);
         console.log(`Email: ${email}`);
@@ -331,13 +323,13 @@ app.post('/send-email', async (req, res) => {
             return res.status(400).json({ success: false, message: 'All fields required' });
         }
 
-        // ✅ RESPOND IMMEDIATELY
-        res.status(200).json({ 
-            success: true, 
+  
+        res.status(200).json({
+            success: true,
             message: 'Inquiry submitted successfully! You will receive a confirmation email shortly.'
         });
 
-        // ✅ SEND EMAILS IN BACKGROUND (NO WAITING)
+ 
         (async () => {
             console.log('📧 Starting background email sending...\n');
 
@@ -418,56 +410,56 @@ app.post('/send-email', async (req, res) => {
                             <p>Well India - NGO Consulting Services</p>
                         </div>
                     </div>`
+
                 };
 
-                // Send both emails
+              
                 const [serviceResult, customerResult] = await Promise.allSettled([
                     sendEmailWithRetryRender(serviceMail, 5),
                     sendEmailWithRetryRender(customerAutoReply, 5)
                 ]);
 
                 console.log('\n' + '='.repeat(60));
-                console.log('📊 EMAIL SENDING RESULTS');
+                console.log('EMAIL SENDING RESULTS');
                 console.log('='.repeat(60));
-                console.log(`Service Email: ${serviceResult.status === 'fulfilled' ? '✅ SENT' : '❌ FAILED'}`);
-                console.log(`Customer Email: ${customerResult.status === 'fulfilled' ? '✅ SENT' : '❌ FAILED'}`);
+                console.log(`Service Email: ${serviceResult.status === 'fulfilled' ? 'SENT' : ' FAILED'}`);
+                console.log(`Customer Email: ${customerResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
                 console.log('='.repeat(60) + '\n');
 
             } catch (emailError) {
-                console.error('❌ Background email error:', emailError.message);
+                console.error(' Background email error:', emailError.message);
             }
         })();
 
     } catch (error) {
-        console.error('❌ Send-email route error:', error);
+        console.error(' Send-email route error:', error);
         res.status(500).json({ success: false, message: 'Email failed', error: error.message });
     }
 });
 
-// ✅ Health Check Routes
+
 app.get('/', (req, res) => {
     res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
+    res.json({ status: 'server is runing', timestamp: new Date().toISOString() })
 });
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-});
 
-// ✅ 404 Handler
+
+
 app.use((req, res) => {
     res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// ✅ Global Error Handler
+
 app.use((err, req, res, next) => {
-    console.error('❌ Global error:', err);
+    console.error(' Global error:', err);
     res.status(500).json({ success: false, message: err.message });
 });
 
-// ✅ Start Server
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log('\n' + '='.repeat(60));
-    console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
+    console.log(` SERVER RUNNING ON PORT ${PORT}`);
     console.log('='.repeat(60) + '\n');
 });
