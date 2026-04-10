@@ -7,7 +7,8 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
+import { articles } from './articles.js'
+import { Feed } from "feed";
 
 dotenv.config();
 
@@ -443,9 +444,45 @@ app.get('/', (req, res) => {
     res.json({ status: 'server is runing', timestamp: new Date().toISOString() })
 });
 
+app.get('/rss.xml', (req, res) => {
+    try {
+        const rssFeed = new Feed({
+            title: "Well India | The Official AYUSH Blog",
+            description: "Insights into Traditional Healthcare Projects & Policy",
+            id: "https://wellindia.in/",
+            link: "https://wellindia.in/",
+            language: "en",
+            copyright: "All rights reserved 2026, Well India",
+        });
 
+        articles.forEach(post => {
+             const imageUrl = post.image ? post.image.split('?')[0] : undefined;
+            rssFeed.addItem({
+                title: post.title,
+                id: `https://wellindia.in/blog/${post.slug}`,
+                link: `https://wellindia.in/blog/${post.slug}`,
+                description: post.excerpt,
+                date: new Date(post.date),
+                image: imageUrl,
+                author: [{ name: post.author }]
+            });
+        });
 
+        res.set('Content-Type', 'application/xml; charset=utf-8');
 
+        let xml = rssFeed.rss2();
+
+        // Fix unescaped & that the feed library misses
+        // Only replace bare & that are NOT already part of an XML entity
+        xml = xml.replace(/&(?![a-zA-Z0-9#]+;)/g, '&amp;');
+
+        res.send(xml);
+
+    } catch (error) {
+        console.error("RSS Error:", error);
+        res.status(500).send("Internal Server Error");
+    }
+});
 app.use((req, res) => {
     res.status(404).json({ success: false, message: 'Route not found' });
 });
