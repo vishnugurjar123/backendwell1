@@ -305,14 +305,16 @@ app.get('/', (req, res) => {
 // ✅ FIX 3: Duplicate /rss.xml route hata diya — sirf yeh wala rakha
 app.get('/rss.xml', (req, res) => {
     try {
-           res.set('Access-Control-Allow-Origin', '*');
-        res.set('Content-Type', 'application/rss+xml; charset=utf-8');
         const rssFeed = new Feed({
             title: "Well India | The Official AYUSH Blog",
             description: "Insights into Traditional Healthcare Projects & Policy",
             id: "https://wellindia.in/",
             link: "https://wellindia.in/",
-            language: "en"
+            language: "en",
+            // ✅ FIX 2: atom:link with rel="self" add karo
+            feedLinks: {
+                rss: "https://wellindia.in/rss.php"
+            }
         });
 
         articles.forEach(post => {
@@ -324,11 +326,16 @@ app.get('/rss.xml', (req, res) => {
                 description: post.excerpt,
                 content: `<p>${post.excerpt}</p>`,
                 date: new Date(post.date),
-                author: [{ name: post.author }],
+                // ✅ FIX 1: author mein email format required hai
+                author: [{ 
+                    name: post.author,
+                    email: "info@wellindia.in"  // valid email daalo
+                }],
                 enclosure: imageUrl ? { url: imageUrl, length: 0, type: "image/jpeg" } : undefined
             });
         });
 
+        res.set('Access-Control-Allow-Origin', '*');
         res.set('Content-Type', 'application/rss+xml; charset=utf-8');
         res.send(rssFeed.rss2());
 
@@ -337,7 +344,6 @@ app.get('/rss.xml', (req, res) => {
         res.status(500).send("Internal Server Error");
     }
 });
-
 // ✅ FIX 4: /blog/:slug mein null check add kiya
 app.get('/blog/:slug', (req, res) => {
     const post = articles.find(p => p.slug === req.params.slug);
