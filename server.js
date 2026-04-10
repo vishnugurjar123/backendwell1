@@ -515,6 +515,14 @@ app.get('/blog/:slug', (req, res) => {
     </html>
   `);
 });
+// server (same domain pe)
+app.get('/rss.xml', async (req, res) => {
+  const response = await fetch('https://backendwell1.onrender.com/rss.xml');
+  const data = await response.text();
+
+  res.set('Content-Type', 'application/rss+xml');
+  res.send(data);
+});
 app.use((req, res) => {
     res.status(404).json({ success: false, message: 'Route not found' });
 });
