@@ -451,32 +451,38 @@ app.get('/rss.xml', (req, res) => {
             description: "Insights into Traditional Healthcare Projects & Policy",
             id: "https://wellindia.in/",
             link: "https://wellindia.in/",
-            language: "en",
-            copyright: "All rights reserved 2026, Well India",
+            language: "en"
         });
 
         articles.forEach(post => {
-             const imageUrl = post.image ? post.image.split('?')[0] : undefined;
+            const imageUrl = post.image;
+
             rssFeed.addItem({
                 title: post.title,
+
                 id: `https://wellindia.in/blog/${post.slug}`,
                 link: `https://wellindia.in/blog/${post.slug}`,
+
                 description: post.excerpt,
+
+                // ✅ LinkedIn ke liye MUST
+                content: `<p>${post.excerpt}</p>`,
+
                 date: new Date(post.date),
-                image: imageUrl,
-                author: [{ name: post.author }]
+
+                author: [{ name: post.author }],
+
+                enclosure: imageUrl
+                    ? {
+                        url: imageUrl,
+                        type: "image/jpeg"
+                    }
+                    : undefined
             });
         });
 
-        res.set('Content-Type', 'application/xml; charset=utf-8');
-
-        let xml = rssFeed.rss2();
-
-        // Fix unescaped & that the feed library misses
-        // Only replace bare & that are NOT already part of an XML entity
-        xml = xml.replace(/&(?![a-zA-Z0-9#]+;)/g, '&amp;');
-
-        res.send(xml);
+        res.set('Content-Type', 'application/rss+xml; charset=utf-8');
+        res.send(rssFeed.rss2());
 
     } catch (error) {
         console.error("RSS Error:", error);
