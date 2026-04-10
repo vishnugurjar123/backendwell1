@@ -455,7 +455,9 @@ app.get('/rss.xml', (req, res) => {
         });
 
         articles.forEach(post => {
-            const imageUrl = post.image;
+
+            // ✅ FIX 1: clean image
+            const imageUrl = post.image?.split('?')[0];
 
             rssFeed.addItem({
                 title: post.title,
@@ -465,17 +467,19 @@ app.get('/rss.xml', (req, res) => {
 
                 description: post.excerpt,
 
-                // ✅ LinkedIn ke liye MUST
+                // ✅ MUST for LinkedIn
                 content: `<p>${post.excerpt}</p>`,
 
                 date: new Date(post.date),
 
                 author: [{ name: post.author }],
 
+                // ✅ FIX 2: proper enclosure
                 enclosure: imageUrl
                     ? {
                         url: imageUrl,
-                        type: "image/jpeg"
+                        length: 0,
+                        type: "image/jpeg"   // 🔥 FIXED
                     }
                     : undefined
             });
@@ -488,6 +492,28 @@ app.get('/rss.xml', (req, res) => {
         console.error("RSS Error:", error);
         res.status(500).send("Internal Server Error");
     }
+});
+app.get('/blog/:slug', (req, res) => {
+  const post = articles.find(p => p.slug === req.params.slug);
+
+  res.send(`
+    <html>
+      <head>
+        <title>${post.title}</title>
+
+        <meta property="og:title" content="${post.title}" />
+        <meta property="og:description" content="${post.excerpt}" />
+        <meta property="og:image" content="${post.image}" />
+        <meta property="og:url" content="https://wellindia.in/blog/${post.slug}" />
+        <meta property="og:type" content="article" />
+      </head>
+      <body>
+        <script>
+          window.location.href="https://wellindia.in/blog/${post.slug}";
+        </script>
+      </body>
+    </html>
+  `);
 });
 app.use((req, res) => {
     res.status(404).json({ success: false, message: 'Route not found' });
