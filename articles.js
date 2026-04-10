@@ -6,7 +6,7 @@ export const articles = [
     excerpt: "A flagship, centrally sponsored scheme expanding AYUSH services, education, drug quality and medicinal plant support across India.",
 
     // ✅ FIXED DATE FORMAT
-    date: "2026-04-010",
+    date: "2026-04-10",
 
     author: "AYUSH Policy Analyst",
 
