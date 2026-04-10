@@ -9,6 +9,7 @@ export const articles = [
     date: "2026-04-10",
 
     author: "AYUSH Policy Analyst",
+    
 
     // ✅ Clean image URL (no query params better for RSS)
     image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd",
@@ -16,6 +17,7 @@ export const articles = [
     tag: "Policy",
     featured: true,
 
+  
     toc: [
       "Mission Overview",
       "Key Components",
