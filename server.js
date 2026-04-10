@@ -305,6 +305,8 @@ app.get('/', (req, res) => {
 // ✅ FIX 3: Duplicate /rss.xml route hata diya — sirf yeh wala rakha
 app.get('/rss.xml', (req, res) => {
     try {
+           res.set('Access-Control-Allow-Origin', '*');
+        res.set('Content-Type', 'application/rss+xml; charset=utf-8');
         const rssFeed = new Feed({
             title: "Well India | The Official AYUSH Blog",
             description: "Insights into Traditional Healthcare Projects & Policy",
