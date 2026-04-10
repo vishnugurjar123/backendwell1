@@ -12,7 +12,7 @@ export const articles = [
     
 
     // ✅ Clean image URL (no query params better for RSS)
-    image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd",
+    image: "https://res.cloudinary.com/dtarufspt/image/upload/v1775816593/photo-1512621776951-a57141f2eefd_uxpe0t.jpg",
 
     tag: "Policy",
     featured: true,
