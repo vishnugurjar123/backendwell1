@@ -9,7 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { articles } from './articles.js'
 import { Feed } from "feed";
-
+import dns from 'dns';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -79,29 +79,28 @@ const upload = multer({
 });
 
 // ✅ FIX 1: pool option hata diya (nodemailer createTransport mein supported nahi)
+dns.setDefaultResultOrder('ipv4first');
+
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
+    port: 465,        // Use 465 for better compatibility on Render
+    secure: true,      // true for 465, false for other ports
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
     },
-    connectionTimeout: 15000,
-    socketTimeout: 15000,
-    greetingTimeout: 10000,
+    // ✅ FIX 1: Explicitly force IPv4 at the socket level
+    family: 4, 
+    // ✅ FIX 2: Disable pooling to ensure every retry gets a fresh connection
+    pool: false, 
+    connectionTimeout: 30000, // 30 seconds
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
     tls: {
+        // Essential for cloud environments like Render
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
-    }, pool: {
-        maxConnections: 3,
-        maxMessages: 50,
-        rateDelta: 5000,
-        rateLimit: 2
-    },
-    logger: true,
-    debug: true,
-    name: 'wellindia.in'
+    }
 });
 console.log(' Verifying Gmail connection...');
 transporter.verify((error, success) => {
