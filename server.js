@@ -93,26 +93,50 @@ const transporter = nodemailer.createTransport({
     tls: {
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
+    }, pool: {
+        maxConnections: 3,
+        maxMessages: 50,
+        rateDelta: 5000,
+        rateLimit: 2
     },
     logger: true,
     debug: true,
     name: 'wellindia.in'
 });
-
+console.log(' Verifying Gmail connection...');
 transporter.verify((error, success) => {
     if (error) {
-        console.error('EMAIL TRANSPORTER ERROR:', error.message);
+       console.error(' EMAIL TRANSPORTER ERROR:');
+        console.error('   Code:', error.code);
+        console.error('   Message:', error.message);
+        console.error('\n  TROUBLESHOOTING:');
+        console.error('   1. Check EMAIL_USER in .env');
+        console.error('   2. Check EMAIL_PASS in .env (must be 16-char app password)');
+        console.error('   3. Verify Gmail 2FA is enabled');
+        console.error('   4. Generate new app password from https://myaccount.google.com/apppasswords\n');
+         console.error('EMAIL TRANSPORTER ERROR:', error.message);
     } else {
-        console.log('EMAIL TRANSPORTER READY');
+        console.log(' EMAIL TRANSPORTER READY');
+        console.log('   Host: smtp.gmail.com');
+        console.log('   Port: 587');
+        console.log('   Status: Connected\n');
+         console.log('EMAIL TRANSPORTER READY');
     }
 });
 
 async function sendEmailWithRetryRender(mailOptions, retries = 5) {
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
-            console.log(`[Attempt ${attempt + 1}/${retries}] Sending to: ${mailOptions.to}`);
+          console.log(`\n [Attempt ${attempt + 1}/${retries}] Sending email...`);
+            console.log(`   To: ${mailOptions.to}`);
+            console.log(`   Subject: ${mailOptions.subject.substring(0, 50)}...`);
+
             const info = await transporter.sendMail(mailOptions);
-            console.log(`[SUCCESS] Message ID: ${info.messageId}`);
+
+            console.log(` [SUCCESS] Email delivered!`);
+            console.log(`   Message ID: ${info.messageId}`);
+            console.log(`   Response: ${info.response}\n`);
+
             return { success: true, messageId: info.messageId };
         } catch (error) {
             console.error(`[Attempt ${attempt + 1}] Failed: ${error.message}`);
@@ -135,7 +159,14 @@ const WEBSITE_URL = 'https://wellindia.in';
 app.post('/api/apply', upload.single('resume'), async (req, res) => {
     try {
         const { name, email, phone, position } = req.body;
-
+  console.log('\n' + '='.repeat(60));
+        console.log(' JOB APPLICATION RECEIVED');
+        console.log('='.repeat(60));
+        console.log(`Name: ${name}`);
+        console.log(`Email: ${email}`);
+        console.log(`Phone: ${phone}`);
+        console.log(`Position: ${position}`);
+        console.log(`position:${position}`)
         if (!name || !email || !phone || !position) {
             return res.status(400).json({ success: false, message: 'All fields are required' });
         }
@@ -143,6 +174,7 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
         const resumePath = req.file ? req.file.path : '';
         const newCandidate = new Candidate({ name, email, phone, position, resumePath });
         await newCandidate.save();
+ console.log(` Saved to MongoDB with ID: ${newCandidate._id}\n`);
 
         res.status(200).json({
             success: true,
@@ -203,8 +235,12 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                     sendEmailWithRetryRender(candidateAutoReply, 5)
                 ]);
 
-                console.log(`HR Email: ${hrResult.status === 'fulfilled' ? 'SENT' : 'FAILED'}`);
-                console.log(`Candidate Email: ${candidateResult.status === 'fulfilled' ? 'SENT' : 'FAILED'}`);
+                console.log('\n' + '='.repeat(60));
+                console.log(' EMAIL SENDING RESULTS');
+                console.log('='.repeat(60));
+                console.log(`HR Email: ${hrResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
+                console.log(`Candidate Email: ${candidateResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
+                console.log('='.repeat(60) + '\n');
             } catch (emailError) {
                 console.error('Background email error:', emailError.message);
             }
@@ -219,7 +255,14 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
 app.post('/send-email', async (req, res) => {
     try {
         const { name, mobile, email, services, location } = req.body;
-
+console.log('\n' + '='.repeat(60));
+        console.log(' SERVICE INQUIRY RECEIVED');
+        console.log('='.repeat(60));
+        console.log(`Name: ${name}`);
+        console.log(`Email: ${email}`);
+        console.log(`Mobile: ${mobile}`);
+        console.log(`Service: ${services}`);
+        console.log(`Location: ${location}\n`);
         if (!name || !mobile || !email || !services) {
             return res.status(400).json({ success: false, message: 'All fields required' });
         }
@@ -284,8 +327,12 @@ app.post('/send-email', async (req, res) => {
                     sendEmailWithRetryRender(customerAutoReply, 5)
                 ]);
 
-                console.log(`Service Email: ${serviceResult.status === 'fulfilled' ? 'SENT' : 'FAILED'}`);
-                console.log(`Customer Email: ${customerResult.status === 'fulfilled' ? 'SENT' : 'FAILED'}`);
+                 console.log('\n' + '='.repeat(60));
+                console.log('EMAIL SENDING RESULTS');
+                console.log('='.repeat(60));
+                console.log(`Service Email: ${serviceResult.status === 'fulfilled' ? 'SENT' : ' FAILED'}`);
+                console.log(`Customer Email: ${customerResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
+                console.log('='.repeat(60) + '\n');
             } catch (emailError) {
                 console.error('Background email error:', emailError.message);
             }
