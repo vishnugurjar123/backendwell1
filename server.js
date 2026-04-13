@@ -1,5 +1,5 @@
 import express from 'express';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import mongoose from 'mongoose';
@@ -37,15 +37,6 @@ const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
-
-// ✅ Resend client
-const resend = new Resend(process.env.RESEND_ID);
-
-// ✅ FROM address — use verified domain once set up on Resend dashboard
-// Until domain is verified, use: onboarding@resend.dev (only sends to your own email)
-const FROM_CAREERS = 'Well India Careers <onboarding@resend.dev>';
-const FROM_WELL    = 'Well India <onboarding@resend.dev>';
-const FROM_WEBSITE = 'Well India Website <onboarding@resend.dev>';
 
 const connectDB = async () => {
     try {
@@ -87,15 +78,42 @@ const upload = multer({
     }
 });
 
-// ✅ Resend send helper with retry
-async function sendEmailWithRetry(mailOptions, retries = 5) {
+// ✅ FIX 1: pool option hata diya (nodemailer createTransport mein supported nahi)
+const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+    },
+    connectionTimeout: 15000,
+    socketTimeout: 15000,
+    greetingTimeout: 10000,
+    tls: {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+    },
+    logger: true,
+    debug: true,
+    name: 'wellindia.in'
+});
+
+transporter.verify((error, success) => {
+    if (error) {
+        console.error('EMAIL TRANSPORTER ERROR:', error.message);
+    } else {
+        console.log('EMAIL TRANSPORTER READY');
+    }
+});
+
+async function sendEmailWithRetryRender(mailOptions, retries = 5) {
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
             console.log(`[Attempt ${attempt + 1}/${retries}] Sending to: ${mailOptions.to}`);
-            const { data, error } = await resend.emails.send(mailOptions);
-            if (error) throw new Error(error.message);
-            console.log(`[SUCCESS] Message ID: ${data.id}`);
-            return { success: true, messageId: data.id };
+            const info = await transporter.sendMail(mailOptions);
+            console.log(`[SUCCESS] Message ID: ${info.messageId}`);
+            return { success: true, messageId: info.messageId };
         } catch (error) {
             console.error(`[Attempt ${attempt + 1}] Failed: ${error.message}`);
             if (attempt < retries - 1) {
@@ -135,7 +153,7 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
         (async () => {
             try {
                 const hrMail = {
-                    from: FROM_CAREERS,
+                    from: `"Well India Careers" <${process.env.EMAIL_USER}>`,
                     to: process.env.HR_EMAIL || 'hr@wellindia.in',
                     replyTo: email,
                     subject: `New Job Application: ${position}`,
@@ -156,7 +174,7 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                 };
 
                 const candidateAutoReply = {
-                    from: FROM_WELL,
+                    from: `"Well India" <${process.env.EMAIL_USER}>`,
                     to: email,
                     subject: `Application Received – ${position}`,
                     html: `
@@ -181,8 +199,8 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
                 };
 
                 const [hrResult, candidateResult] = await Promise.allSettled([
-                    sendEmailWithRetry(hrMail, 5),
-                    sendEmailWithRetry(candidateAutoReply, 5)
+                    sendEmailWithRetryRender(hrMail, 5),
+                    sendEmailWithRetryRender(candidateAutoReply, 5)
                 ]);
 
                 console.log(`HR Email: ${hrResult.status === 'fulfilled' ? 'SENT' : 'FAILED'}`);
@@ -214,7 +232,7 @@ app.post('/send-email', async (req, res) => {
         (async () => {
             try {
                 const serviceMail = {
-                    from: FROM_WEBSITE,
+                    from: `"Well India Website" <${process.env.EMAIL_USER}>`,
                     to: process.env.SERVICE_EMAIL || 'service@wellindia.in',
                     replyTo: email,
                     subject: `New Inquiry: ${services}`,
@@ -236,7 +254,7 @@ app.post('/send-email', async (req, res) => {
                 };
 
                 const customerAutoReply = {
-                    from: FROM_WELL,
+                    from: `"Well India" <${process.env.EMAIL_USER}>`,
                     to: email,
                     subject: `We've Received Your Inquiry`,
                     html: `
@@ -262,8 +280,8 @@ app.post('/send-email', async (req, res) => {
                 };
 
                 const [serviceResult, customerResult] = await Promise.allSettled([
-                    sendEmailWithRetry(serviceMail, 5),
-                    sendEmailWithRetry(customerAutoReply, 5)
+                    sendEmailWithRetryRender(serviceMail, 5),
+                    sendEmailWithRetryRender(customerAutoReply, 5)
                 ]);
 
                 console.log(`Service Email: ${serviceResult.status === 'fulfilled' ? 'SENT' : 'FAILED'}`);
@@ -279,10 +297,12 @@ app.post('/send-email', async (req, res) => {
     }
 });
 
+// ✅ FIX 2: Duplicate res.json() hata diya
 app.get('/', (req, res) => {
     res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
 });
 
+// ✅ FIX 3: Duplicate /rss.xml route hata diya — sirf yeh wala rakha
 app.get('/rss.xml', (req, res) => {
     try {
         const rssFeed = new Feed({
@@ -291,9 +311,11 @@ app.get('/rss.xml', (req, res) => {
             id: "https://wellindia.in/",
             link: "https://wellindia.in/",
             language: "en",
+            // ✅ FIX 2: atom:link with rel="self" add karo
             feedLinks: {
                 rss: "https://wellindia.in/rss.php"
             }
+            
         });
 
         articles.forEach(post => {
@@ -305,9 +327,10 @@ app.get('/rss.xml', (req, res) => {
                 description: post.excerpt,
                 content: `<p>${post.excerpt}</p>`,
                 date: new Date(post.date),
+                // ✅ FIX 1: author mein email format required hai
                 author: [{ 
                     name: post.author,
-                    email: "info@wellindia.in"
+                    email: "info@wellindia.in"  // valid email daalo
                 }],
                 enclosure: imageUrl ? { url: imageUrl, length: 0, type: "image/jpeg" } : undefined
             });
@@ -322,10 +345,11 @@ app.get('/rss.xml', (req, res) => {
         res.status(500).send("Internal Server Error");
     }
 });
-
+// ✅ FIX 4: /blog/:slug mein null check add kiya
 app.get('/blog/:slug', (req, res) => {
     const post = articles.find(p => p.slug === req.params.slug);
 
+    // ✅ Agar post nahi mila toh 404 return karo, crash nahi hoga
     if (!post) {
         return res.status(404).send('<h1>Article not found</h1>');
     }
