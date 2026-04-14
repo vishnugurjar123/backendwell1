@@ -1,61 +1,86 @@
 import express from "express";
-import nodemailer from "nodemailer";
 import cors from "cors";
 import dotenv from "dotenv";
+import { Resend } from "resend";
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ✅ CORS
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://wellindia.in"
-  ],
-  methods: ["GET", "POST"],
-  credentials: true
+  origin: ["http://localhost:5173", "https://wellindia.in"],
 }));
-// Mail transporter
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  family: 4,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
+
+app.use(express.json());
+
+// ✅ Resend Init
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// ✅ Test Route
+app.get("/", (req, res) => {
+  res.send("API running ✅");
 });
 
-// API route
+// ✅ EMAIL API
 app.post("/send-email", async (req, res) => {
   const { name, email, mobile, services, location } = req.body;
 
+  // ✅ Validation
+  if (!name || !email || !mobile) {
+    return res.status(400).json({ message: "All fields required ❌" });
+  }
+
   try {
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: process.env.HR_EMAIL, // where you receive mail
-      subject: "New Contact Form Submission 🚀",
+    // 📩 ADMIN MAIL (Tumhare Gmail par)
+    const adminResponse = await resend.emails.send({
+      from: "WellIndia <info@send.wellindia.in>", // ✅ IMPORTANT (verified domain)
+      to: ["gurjarvishnu740@gmail.com"], // ✅ YOUR EMAIL
+      subject: "New Enquiry 🚀",
       html: `
-        <h2>New Enquiry</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Phone:</strong> ${mobile}</p>
-        <p><strong>Service:</strong> ${services}</p>
-        <p><strong>Message:</strong> ${location}</p>
+        <h2>New Contact Request</h2>
+        <p><b>Name:</b> ${name}</p>
+        <p><b>Email:</b> ${email}</p>
+        <p><b>Phone:</b> ${mobile}</p>
+        <p><b>Service:</b> ${services}</p>
+        <p><b>Message:</b> ${location}</p>
       `,
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
+    console.log("Admin Mail:", adminResponse);
 
-    res.status(200).json({ message: "Email sent successfully ✅" });
+    // 📩 AUTO REPLY USER KO
+    const userResponse = await resend.emails.send({
+      from: "WellIndia <info@send.wellindia.in>",
+      to: [email],
+      subject: "We received your request ✅",
+      html: `
+        <h3>Thank you ${name}!</h3>
+        <p>We have received your request and our team will contact you shortly.</p>
+        <br/>
+        <p>— WellIndia Team</p>
+      `,
+    });
+
+    console.log("User Mail:", userResponse);
+
+    res.status(200).json({
+      message: "Email sent successfully ✅",
+      adminId: adminResponse.id,
+      userId: userResponse.id
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error sending email ❌" });
+    console.error("EMAIL ERROR:", error);
+    res.status(500).json({
+      message: "Failed to send email ❌",
+      error: error.message
+    });
   }
 });
 
-app.listen(process.env.PORT, () => {
-  console.log(`Server running on port ${process.env.PORT}`);
+// ✅ Start Server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} 🚀`);
 });
