@@ -7,428 +7,356 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { articles } from './articles.js'
+import { articles } from './articles.js';
 import { Feed } from "feed";
 import dns from 'dns';
+
 dotenv.config();
+dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const app = express();
 
-app.use(cors({
-    origin: [
-        'https://www.wellindia.in',
-        'https://wellindia.in',
-        'http://localhost:5173',
-        'https://backendwell1-1.onrender.com',
-        'https://backendwell1.onrender.com',
-    ],
-    methods: ['GET', 'POST', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// --- CONFIGURATION ---
+const PORT = process.env.PORT || 5000;
+const LOGO_URL = 'https://res.cloudinary.com/dtarufspt/image/upload/f_auto,q_auto/logo_oulnzw';
+const WEBSITE_URL = 'https://wellindia.in';
+const SENDER_EMAIL = 'wellindiainquiry@gmail.com';
 
+// Middleware
+app.use(cors({
+    origin: ['https://www.wellindia.in', 'https://wellindia.in', 'http://localhost:5173'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Upload folder setup
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-const connectDB = async () => {
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log('MongoDB Connected');
-    } catch (err) {
-        console.error('MongoDB Error:', err.message);
-        setTimeout(connectDB, 5000);
-    }
-};
-connectDB();
+// MongoDB Connection
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('✅ MongoDB Connected'))
+    .catch(err => console.error('❌ MongoDB Error:', err));
 
-const candidateSchema = new mongoose.Schema({
+const Candidate = mongoose.model('Candidate', new mongoose.Schema({
     name: String,
     email: String,
     phone: String,
     position: String,
     resumePath: String,
     createdAt: { type: Date, default: Date.now }
-});
-const Candidate = mongoose.model('Candidate', candidateSchema);
+}));
 
+// Multer Storage
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) =>
-        cb(null, Date.now() + '-' + file.originalname.replace(/\s/g, '_'))
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/\s/g, '_')}`)
 });
-const upload = multer({
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        const allowed = ['.pdf', '.doc', '.docx'];
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (allowed.includes(ext)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only PDF, DOC, DOCX files allowed'));
-        }
-    }
-});
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
-// ✅ FIX 1: pool option hata diya (nodemailer createTransport mein supported nahi)
-dns.setDefaultResultOrder('ipv4first');
-
+// ✅ NODEMAILER CONFIG
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,        // Use 465 for better compatibility on Render
-    secure: true,      // true for 465, false for other ports
+    host: 'smtp-relay.brevo.com',
+    port: 587,
+    secure: false,
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: process.env.BREVO_USER,
+        pass: process.env.EMAIL_PASS
     },
-    // ✅ FIX 1: Explicitly force IPv4 at the socket level
-    family: 4, 
-    // ✅ FIX 2: Disable pooling to ensure every retry gets a fresh connection
-    pool: false, 
-    connectionTimeout: 30000, // 30 seconds
-    greetingTimeout: 30000,
-    socketTimeout: 30000,
-    tls: {
-        // Essential for cloud environments like Render
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-    }
-});
-console.log(' Verifying Gmail connection...');
-transporter.verify((error, success) => {
-    if (error) {
-       console.error(' EMAIL TRANSPORTER ERROR:');
-        console.error('   Code:', error.code);
-        console.error('   Message:', error.message);
-        console.error('\n  TROUBLESHOOTING:');
-        console.error('   1. Check EMAIL_USER in .env');
-        console.error('   2. Check EMAIL_PASS in .env (must be 16-char app password)');
-        console.error('   3. Verify Gmail 2FA is enabled');
-        console.error('   4. Generate new app password from https://myaccount.google.com/apppasswords\n');
-         console.error('EMAIL TRANSPORTER ERROR:', error.message);
-    } else {
-        console.log(' EMAIL TRANSPORTER READY');
-        console.log('   Host: smtp.gmail.com');
-        console.log('   Port: 587');
-        console.log('   Status: Connected\n');
-         console.log('EMAIL TRANSPORTER READY');
-    }
+    tls: { rejectUnauthorized: false }
 });
 
-async function sendEmailWithRetryRender(mailOptions, retries = 5) {
-    for (let attempt = 0; attempt < retries; attempt++) {
-        try {
-          console.log(`\n [Attempt ${attempt + 1}/${retries}] Sending email...`);
-            console.log(`   To: ${mailOptions.to}`);
-            console.log(`   Subject: ${mailOptions.subject.substring(0, 50)}...`);
+transporter.verify((error) => {
+    if (error) console.log("❌ SMTP connection failed:", error.message);
+    else console.log("🚀 Brevo SMTP is ready to send emails!");
+});
 
-            const info = await transporter.sendMail(mailOptions);
 
-            console.log(` [SUCCESS] Email delivered!`);
-            console.log(`   Message ID: ${info.messageId}`);
-            console.log(`   Response: ${info.response}\n`);
+// ============================================================
+// ✅ EMAIL TEMPLATES (Simple & Clean — screenshot style)
+// ============================================================
 
-            return { success: true, messageId: info.messageId };
-        } catch (error) {
-            console.error(`[Attempt ${attempt + 1}] Failed: ${error.message}`);
-            if (attempt < retries - 1) {
-                const delays = [2000, 5000, 10000, 20000, 40000];
-                const delay = delays[attempt] || 40000;
-                console.log(`Retrying in ${delay / 1000}s...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                console.error(`All ${retries} attempts failed`);
-                return { success: false, error: error.message };
-            }
-        }
-    }
+// 1. HR Notification — New Job Application
+function hrEmailTemplate({ name, position, phone, email }) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:30px 0;">
+    <tr><td align="center">
+      <table width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;">
+
+        <tr>
+          <td style="background:#0d9e8a;padding:20px 30px;text-align:center;">
+            <h2 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">New Job Application</h2>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:24px 30px 10px;">
+            <p style="margin:0;color:#444;font-size:15px;">You have received a new job application from your website careers form.</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:10px 30px 20px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;width:40%;">Full Name:</td>
+                <td style="padding:12px 0;color:#555;font-size:14px;">${name}</td>
+              </tr>
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Position:</td>
+                <td style="padding:12px 0;font-size:14px;">
+                  <span style="background:#0d9e8a;color:#fff;padding:3px 12px;border-radius:4px;font-size:13px;font-weight:600;">${position}</span>
+                </td>
+              </tr>
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Mobile:</td>
+                <td style="padding:12px 0;color:#555;font-size:14px;">${phone}</td>
+              </tr>
+              <tr>
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Email ID:</td>
+                <td style="padding:12px 0;font-size:14px;"><a href="mailto:${email}" style="color:#0d9e8a;text-decoration:none;">${email}</a></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:0 30px 20px;">
+            <p style="margin:0;color:#888;font-size:13px;">📎 Resume is attached to this email.</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="background:#f9f9f9;border-top:1px solid #eeeeee;padding:14px 30px;text-align:center;">
+            <p style="margin:0;color:#aaa;font-size:12px;">This email was generated from your Well India Website Careers Form.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 }
 
-const LOGO_URL = 'https://res.cloudinary.com/dtarufspt/image/upload/f_auto,q_auto/logo_oulnzw';
-const WEBSITE_URL = 'https://wellindia.in';
+// 2. Candidate Auto-Reply
+function candidateEmailTemplate({ name, position }) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:30px 0;">
+    <tr><td align="center">
+      <table width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;">
 
+        <tr>
+          <td style="background:#0d9e8a;padding:20px 30px;text-align:center;">
+            <img src="${LOGO_URL}" width="120" alt="Well India" style="display:block;margin:0 auto 10px;"/>
+            <h2 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">Application Received</h2>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:28px 30px 10px;">
+            <p style="margin:0 0 14px;color:#333;font-size:15px;">Dear <strong>${name}</strong>,</p>
+            <p style="margin:0;color:#555;font-size:15px;line-height:1.6;">
+              Thank you for applying to <strong>Well India</strong>. We have successfully received your application for the position below.
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:16px 30px 20px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;width:40%;">Position Applied:</td>
+                <td style="padding:12px 0;font-size:14px;">
+                  <span style="background:#0d9e8a;color:#fff;padding:3px 12px;border-radius:4px;font-size:13px;font-weight:600;">${position}</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Status:</td>
+                <td style="padding:12px 0;color:#0d9e8a;font-size:14px;font-weight:600;">Under Review</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:0 30px 28px;">
+            <p style="margin:0;color:#555;font-size:14px;line-height:1.6;">
+              Our HR team will review your profile and get back to you shortly. For any queries, contact us at
+              <a href="mailto:${SENDER_EMAIL}" style="color:#0d9e8a;text-decoration:none;">${SENDER_EMAIL}</a>.
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="background:#f9f9f9;border-top:1px solid #eeeeee;padding:14px 30px;text-align:center;">
+            <p style="margin:0;color:#aaa;font-size:12px;">This email was generated from your Well India Website Careers Form.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+// 3. Service Inquiry Notification
+function inquiryEmailTemplate({ name, services, mobile, email, location }) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:30px 0;">
+    <tr><td align="center">
+      <table width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;">
+
+        <tr>
+          <td style="background:#0d9e8a;padding:20px 30px;text-align:center;">
+            <h2 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">New Service Request</h2>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:24px 30px 10px;">
+            <p style="margin:0;color:#444;font-size:15px;">You have received a new inquiry from your website contact form.</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:10px 30px 20px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;width:40%;">Full Name:</td>
+                <td style="padding:12px 0;color:#555;font-size:14px;">${name}</td>
+              </tr>
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Mobile:</td>
+                <td style="padding:12px 0;color:#555;font-size:14px;">${mobile}</td>
+              </tr>
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Email ID:</td>
+                <td style="padding:12px 0;font-size:14px;"><a href="mailto:${email}" style="color:#0d9e8a;text-decoration:none;">${email}</a></td>
+              </tr>
+              <tr style="border-bottom:1px solid #eeeeee;">
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Service Requested:</td>
+                <td style="padding:12px 0;font-size:14px;">
+                  <span style="background:#0d9e8a;color:#fff;padding:3px 12px;border-radius:4px;font-size:13px;font-weight:600;">${services}</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:12px 0;font-weight:700;color:#333;font-size:14px;">Message:</td>
+                <td style="padding:12px 0;color:#555;font-size:14px;">${location || 'Not specified'}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="background:#f9f9f9;border-top:1px solid #eeeeee;padding:14px 30px;text-align:center;">
+            <p style="margin:0;color:#aaa;font-size:12px;">This email was generated from your Well India Website Contact Form.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+
+// ============================================================
+// ✅ ROUTES
+// ============================================================
+
+// 1. Job Application
 app.post('/api/apply', upload.single('resume'), async (req, res) => {
     try {
         const { name, email, phone, position } = req.body;
-  console.log('\n' + '='.repeat(60));
-        console.log(' JOB APPLICATION RECEIVED');
-        console.log('='.repeat(60));
-        console.log(`Name: ${name}`);
-        console.log(`Email: ${email}`);
-        console.log(`Phone: ${phone}`);
-        console.log(`Position: ${position}`);
-        console.log(`position:${position}`)
-        if (!name || !email || !phone || !position) {
-            return res.status(400).json({ success: false, message: 'All fields are required' });
-        }
-
         const resumePath = req.file ? req.file.path : '';
+
         const newCandidate = new Candidate({ name, email, phone, position, resumePath });
         await newCandidate.save();
- console.log(` Saved to MongoDB with ID: ${newCandidate._id}\n`);
 
-        res.status(200).json({
-            success: true,
-            message: 'Application submitted successfully! Check your email for confirmation.',
-            candidateId: newCandidate._id
-        });
+        const hrMail = {
+            from: `"Well India Careers" <${SENDER_EMAIL}>`,
+            to: process.env.HR_EMAIL,
+            subject: `New Application: ${position} from ${name}`,
+            html: hrEmailTemplate({ name, email, phone, position }),
+            attachments: req.file ? [{ filename: req.file.originalname, path: req.file.path }] : []
+        };
 
-        (async () => {
-            try {
-                const hrMail = {
-                    from: `"Well India Careers" <${process.env.EMAIL_USER}>`,
-                    to: process.env.HR_EMAIL || 'hr@wellindia.in',
-                    replyTo: email,
-                    subject: `New Job Application: ${position}`,
-                    html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
-                        <div style="background: linear-gradient(135deg, #0d9e8a, #0b8a79); padding: 20px; text-align: center;">
-                            <h2 style="color: #ffffff; margin: 0;">New Job Application Received</h2>
-                        </div>
-                        <div style="padding: 20px; background-color: #f9f9f9;">
-                            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Name:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;">${name}</td></tr>
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Email:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;">${email}</td></tr>
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Phone:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;">${phone}</td></tr>
-                                <tr><td style="padding:10px;"><b>Position:</b></td><td style="padding:10px;"><span style="background:#0d9e8a;color:#fff;padding:4px 10px;border-radius:4px;">${position}</span></td></tr>
-                            </table>
-                        </div>
-                    </div>`
-                };
+        const candidateMail = {
+            from: `"Well India" <${SENDER_EMAIL}>`,
+            to: email,
+            subject: `Application Received – ${position}`,
+            html: candidateEmailTemplate({ name, position })
+        };
 
-                const candidateAutoReply = {
-                    from: `"Well India" <${process.env.EMAIL_USER}>`,
-                    to: email,
-                    subject: `Application Received – ${position}`,
-                    html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
-                        <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
-                            <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
-                        </div>
-                        <div style="padding: 25px;">
-                            <h2 style="color:#0d9e8a;">Hello ${name},</h2>
-                            <p>Thank you for applying at <b>Well India</b>!</p>
-                            <p>We received your application for <b>${position}</b>. Our HR team will get back to you shortly.</p>
-                            <div style="margin-top:20px;">
-                                <a href="${WEBSITE_URL}" style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">Visit Website</a>
-                            </div>
-                        </div>
-                        <div style="background:#f9f9f9;padding:15px;text-align:center;font-size:12px;color:#999;">
-                            <p>Well India | 202, 2nd Floor, Hans Bhawan Building, ITO, New Delhi – 110002</p>
-                            <a href="https://www.instagram.com/wellindia.in/" style="color:#0d9e8a;margin:0 10px;">Instagram</a>
-                            <a href="https://www.facebook.com/wellindia.in/" style="color:#0d9e8a;margin:0 10px;">Facebook</a>
-                        </div>
-                    </div>`
-                };
+        await Promise.all([
+            transporter.sendMail(hrMail),
+            transporter.sendMail(candidateMail)
+        ]);
 
-                const [hrResult, candidateResult] = await Promise.allSettled([
-                    sendEmailWithRetryRender(hrMail, 5),
-                    sendEmailWithRetryRender(candidateAutoReply, 5)
-                ]);
-
-                console.log('\n' + '='.repeat(60));
-                console.log(' EMAIL SENDING RESULTS');
-                console.log('='.repeat(60));
-                console.log(`HR Email: ${hrResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
-                console.log(`Candidate Email: ${candidateResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
-                console.log('='.repeat(60) + '\n');
-            } catch (emailError) {
-                console.error('Background email error:', emailError.message);
-            }
-        })();
-
+        res.status(200).json({ success: true, message: 'Application submitted!' });
     } catch (error) {
-        console.error('Apply route error:', error);
-        res.status(500).json({ success: false, message: 'Something went wrong', error: error.message });
+        console.error("Apply Route Error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
+// 2. Service Inquiry
 app.post('/send-email', async (req, res) => {
     try {
         const { name, mobile, email, services, location } = req.body;
-console.log('\n' + '='.repeat(60));
-        console.log(' SERVICE INQUIRY RECEIVED');
-        console.log('='.repeat(60));
-        console.log(`Name: ${name}`);
-        console.log(`Email: ${email}`);
-        console.log(`Mobile: ${mobile}`);
-        console.log(`Service: ${services}`);
-        console.log(`Location: ${location}\n`);
-        if (!name || !mobile || !email || !services) {
-            return res.status(400).json({ success: false, message: 'All fields required' });
-        }
 
-        res.status(200).json({
-            success: true,
-            message: 'Inquiry submitted successfully! You will receive a confirmation email shortly.'
-        });
+        const mailOptions = {
+            from: `"Well India Inquiry" <${SENDER_EMAIL}>`,
+            to: process.env.SERVICE_EMAIL,
+            subject: `New Service Inquiry: ${services}`,
+            html: inquiryEmailTemplate({ name, services, mobile, email, location })
+        };
 
-        (async () => {
-            try {
-                const serviceMail = {
-                    from: `"Well India Website" <${process.env.EMAIL_USER}>`,
-                    to: process.env.SERVICE_EMAIL || 'service@wellindia.in',
-                    replyTo: email,
-                    subject: `New Inquiry: ${services}`,
-                    html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
-                        <div style="background: linear-gradient(135deg, #0d9e8a, #0b8a79); padding: 20px; text-align: center;">
-                            <h2 style="color: #ffffff; margin: 0;">New Service Request</h2>
-                        </div>
-                        <div style="padding: 20px; background-color: #f9f9f9;">
-                            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Name:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;">${name}</td></tr>
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Mobile:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;">${mobile}</td></tr>
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Email:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;">${email}</td></tr>
-                                <tr><td style="padding:10px;border-bottom:1px solid #ddd;"><b>Service:</b></td><td style="padding:10px;border-bottom:1px solid #ddd;"><span style="background:#0d9e8a;color:#fff;padding:4px 10px;border-radius:4px;">${services}</span></td></tr>
-                                <tr><td style="padding:10px;"><b>Location:</b></td><td style="padding:10px;">${location || 'N/A'}</td></tr>
-                            </table>
-                        </div>
-                    </div>`
-                };
-
-                const customerAutoReply = {
-                    from: `"Well India" <${process.env.EMAIL_USER}>`,
-                    to: email,
-                    subject: `We've Received Your Inquiry`,
-                    html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
-                        <div style="padding: 20px; text-align: center; border-bottom: 2px solid #0d9e8a;">
-                            <img src="${LOGO_URL}" style="width:120px; height:auto;" alt="Well India" />
-                        </div>
-                        <div style="padding: 25px;">
-                            <h2 style="color:#0d9e8a;">Hello ${name},</h2>
-                            <p>Thank you for contacting <b>Well India</b>.</p>
-                            <p>We received your request for <b>${services}</b>. Our team will contact you soon.</p>
-                            <p><b>Your Contact:</b> ${mobile}</p>
-                            <div style="margin-top:20px;">
-                                <a href="${WEBSITE_URL}" style="background:#0d9e8a;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">Visit Website</a>
-                            </div>
-                        </div>
-                        <div style="background:#f9f9f9;padding:20px;text-align:center;font-size:12px;color:#999;">
-                            <p>Well India | 202, 2nd Floor, Hans Bhawan Building, ITO, New Delhi – 110002</p>
-                            <a href="https://www.instagram.com/wellindia.in/" style="color:#0d9e8a;margin:0 10px;">Instagram</a>
-                            <a href="https://www.facebook.com/wellindia.in/" style="color:#0d9e8a;margin:0 10px;">Facebook</a>
-                        </div>
-                    </div>`
-                };
-
-                const [serviceResult, customerResult] = await Promise.allSettled([
-                    sendEmailWithRetryRender(serviceMail, 5),
-                    sendEmailWithRetryRender(customerAutoReply, 5)
-                ]);
-
-                 console.log('\n' + '='.repeat(60));
-                console.log('EMAIL SENDING RESULTS');
-                console.log('='.repeat(60));
-                console.log(`Service Email: ${serviceResult.status === 'fulfilled' ? 'SENT' : ' FAILED'}`);
-                console.log(`Customer Email: ${customerResult.status === 'fulfilled' ? ' SENT' : ' FAILED'}`);
-                console.log('='.repeat(60) + '\n');
-            } catch (emailError) {
-                console.error('Background email error:', emailError.message);
-            }
-        })();
-
+        await transporter.sendMail(mailOptions);
+        res.status(200).json({ success: true, message: 'Inquiry sent successfully!' });
     } catch (error) {
-        console.error('Send-email route error:', error);
-        res.status(500).json({ success: false, message: 'Email failed', error: error.message });
+        console.error("Inquiry Route Error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// ✅ FIX 2: Duplicate res.json() hata diya
-app.get('/', (req, res) => {
-    res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
-});
-
-// ✅ FIX 3: Duplicate /rss.xml route hata diya — sirf yeh wala rakha
+// 3. RSS Feed
 app.get('/rss.xml', (req, res) => {
-    try {
-        const rssFeed = new Feed({
-            title: "Well India | The Official AYUSH Blog",
-            description: "Insights into Traditional Healthcare Projects & Policy",
-            id: "https://wellindia.in/",
-            link: "https://wellindia.in/",
-            language: "en",
-            // ✅ FIX 2: atom:link with rel="self" add karo
-            feedLinks: {
-                rss: "https://wellindia.in/rss.php"
-            }
-            
+    const feed = new Feed({
+        title: "Well India Blog",
+        id: WEBSITE_URL,
+        link: WEBSITE_URL,
+        language: "en",
+    });
+    articles.forEach(post => {
+        feed.addItem({
+            title: post.title,
+            id: `${WEBSITE_URL}/blog/${post.slug}`,
+            link: `${WEBSITE_URL}/blog/${post.slug}`,
+            date: new Date(post.date),
         });
-
-        articles.forEach(post => {
-            const imageUrl = post.image?.split('?')[0];
-            rssFeed.addItem({
-                title: post.title,
-                id: `https://wellindia.in/blog/${post.slug}`,
-                link: `https://wellindia.in/blog/${post.slug}`,
-                description: post.excerpt,
-                content: `<p>${post.excerpt}</p>`,
-                date: new Date(post.date),
-                // ✅ FIX 1: author mein email format required hai
-                author: [{ 
-                    name: post.author,
-                    email: "info@wellindia.in"  // valid email daalo
-                }],
-                enclosure: imageUrl ? { url: imageUrl, length: 0, type: "image/jpeg" } : undefined
-            });
-        });
-
-        res.set('Access-Control-Allow-Origin', '*');
-        res.set('Content-Type', 'application/rss+xml; charset=utf-8');
-        res.send(rssFeed.rss2());
-
-    } catch (error) {
-        console.error("RSS Error:", error);
-        res.status(500).send("Internal Server Error");
-    }
-});
-// ✅ FIX 4: /blog/:slug mein null check add kiya
-app.get('/blog/:slug', (req, res) => {
-    const post = articles.find(p => p.slug === req.params.slug);
-
-    // ✅ Agar post nahi mila toh 404 return karo, crash nahi hoga
-    if (!post) {
-        return res.status(404).send('<h1>Article not found</h1>');
-    }
-
-    res.send(`
-    <html>
-      <head>
-        <title>${post.title}</title>
-        <meta property="og:title" content="${post.title}" />
-        <meta property="og:description" content="${post.excerpt}" />
-        <meta property="og:image" content="${post.image}" />
-        <meta property="og:url" content="https://wellindia.in/blog/${post.slug}" />
-        <meta property="og:type" content="article" />
-      </head>
-      <body>
-        <script>
-          window.location.href="https://wellindia.in/blog/${post.slug}";
-        </script>
-      </body>
-    </html>
-  `);
+    });
+    res.set('Content-Type', 'application/rss+xml').send(feed.rss2());
 });
 
-app.use((req, res) => {
-    res.status(404).json({ success: false, message: 'Route not found' });
-});
+app.get('/', (req, res) => res.json({ status: 'Server is running...' }));
 
-app.use((err, req, res, next) => {
-    console.error('Global error:', err);
-    res.status(500).json({ success: false, message: err.message });
-});
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`SERVER RUNNING ON PORT ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server started on port ${PORT}`));
