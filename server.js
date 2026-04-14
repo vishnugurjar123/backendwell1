@@ -34,7 +34,7 @@ app.post("/send-email", async (req, res) => {
   try {
     // 📩 ADMIN MAIL (Tumhare Gmail par)
     const adminResponse = await resend.emails.send({
-      from: "WellIndia <info@send.wellindia.in>", // ✅ IMPORTANT (verified domain)
+      from: "WellIndia <info@wellindia.in>", // ✅ IMPORTANT (verified domain)
       to: ["gurjarvishnu740@gmail.com"], // ✅ YOUR EMAIL
       subject: "New Enquiry 🚀",
       html: `
@@ -51,7 +51,7 @@ app.post("/send-email", async (req, res) => {
 
     // 📩 AUTO REPLY USER KO
     const userResponse = await resend.emails.send({
-      from: "WellIndia <info@send.wellindia.in>",
+  from: "WellIndia <info@wellindia.in>",
       to: [email],
       subject: "We received your request ✅",
       html: `
