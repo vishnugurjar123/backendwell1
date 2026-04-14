@@ -8,9 +8,25 @@ dotenv.config();
 const app = express();
 
 // ✅ CORS
+import cors from "cors";
+
 app.use(cors({
-  origin: ["http://localhost:5173", "https://wellindia.in"],
+  origin: function (origin, callback) {
+    const allowed = [
+      "http://localhost:5173",
+      "https://wellindia.in",
+      "https://www.wellindia.in"
+    ];
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
 }));
+
+app.options("*", cors());
 
 app.use(express.json());
 
