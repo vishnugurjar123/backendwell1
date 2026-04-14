@@ -63,13 +63,20 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 // ✅ NODEMAILER CONFIG
 const transporter = nodemailer.createTransport({
     host: 'smtp-relay.brevo.com',
-    port: 587,
-    secure: false,
+    port: 587, // Aap 465 bhi try kar sakte hain agar 587 block ho raha ho
+    secure: false, // 465 ke liye true karein
     auth: {
         user: process.env.BREVO_USER,
         pass: process.env.EMAIL_PASS
     },
-    tls: { rejectUnauthorized: false }
+    // ✅ Yeh settings Render/Deployment ke timeout ko rokengi
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+    pool: true, // Connection open rakhta hai
+    tls: {
+        rejectUnauthorized: false // Deployed servers par certificate issue fix karta hai
+    }
 });
 
 transporter.verify((error) => {
