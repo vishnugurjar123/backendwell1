@@ -295,33 +295,29 @@ app.post('/api/apply', upload.single('resume'), async (req, res) => {
         const { name, email, phone, position } = req.body;
         const resumePath = req.file ? req.file.path : '';
 
+        // 1. Data Save (Pehle Database check karein)
         const newCandidate = new Candidate({ name, email, phone, position, resumePath });
         await newCandidate.save();
+        console.log("✅ Candidate saved to DB");
 
-        const hrMail = {
-            from: `"Well India Careers" <${SENDER_EMAIL}>`,
-            to: process.env.HR_EMAIL,
-            subject: `New Application: ${position} from ${name}`,
-            html: hrEmailTemplate({ name, email, phone, position }),
-            attachments: req.file ? [{ filename: req.file.originalname, path: req.file.path }] : []
-        };
+        // 2. HR Mail (Sequence 1)
+        try {
+            await transporter.sendMail(hrMail);
+            console.log("✅ HR Mail Sent");
+        } catch (e) { console.error("❌ HR Mail Error:", e.message); }
 
-        const candidateMail = {
-            from: `"Well India" <${SENDER_EMAIL}>`,
-            to: email,
-            subject: `Application Received – ${position}`,
-            html: candidateEmailTemplate({ name, position })
-        };
+        // 3. Auto-reply (Sequence 2)
+        try {
+            await transporter.sendMail(candidateMail);
+            console.log(`✅ Auto-reply sent to ${email}`);
+        } catch (e) { console.error("❌ Auto-reply Error:", e.message); }
 
-        await Promise.all([
-            transporter.sendMail(hrMail),
-            transporter.sendMail(candidateMail)
-        ]);
-
+        // Success response hamesha bhejein agar DB mein save ho gaya hai
         res.status(200).json({ success: true, message: 'Application submitted!' });
+
     } catch (error) {
-        console.error("Apply Route Error:", error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error("❌ Main Route Error:", error.message);
+        res.status(500).json({ success: false, error: "Submission failed" });
     }
 });
 
