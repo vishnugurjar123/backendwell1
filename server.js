@@ -47,13 +47,13 @@ const upload = multer({ storage });
 // ✅ NODEMAILER CONFIG (Extra Timeouts for Render)
 const transporter = nodemailer.createTransport({
     host: 'smtp-relay.brevo.com',
-    port: 587,
-    secure: false, 
+    port: 465, // Change from 587 to 465
+    secure: true, // Port 465 ke liye hamesha true
     auth: {
         user: process.env.BREVO_USER, 
         pass: process.env.EMAIL_PASS  
     },
-    connectionTimeout: 30000, // 30 seconds wait
+    connectionTimeout: 30000,
     greetingTimeout: 30000,
     socketTimeout: 30000,
     tls: { rejectUnauthorized: false }
