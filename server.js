@@ -7,8 +7,7 @@ dotenv.config();
 
 const app = express();
 
-// ✅ CORS
-import cors from "cors";
+
 
 app.use(cors({
   origin: function (origin, callback) {
