@@ -193,7 +193,7 @@ app.post("/send-email", async (req, res) => {
     // 📩 Admin notification
     const adminResponse = await resend.emails.send({
       from: "WellIndia <info@wellindia.in>",
-      to: ["gurjarvishnu740@gmail.com"],
+      to: ["management@wellindia.in"],
       subject: "🚀 New Service Request – Well India",
       html: adminEmailHTML({ name, email, mobile, services, location }),
     });
